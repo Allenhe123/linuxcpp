@@ -8,6 +8,8 @@
 #include <errno.h>
 #include <string.h>
 
+#define BUFFSIZE 512
+
 // ./accept 127.0.0.1 8888
 int main( int argc, char* argv[] )
 {
@@ -16,6 +18,8 @@ int main( int argc, char* argv[] )
         printf( "usage: %s ip_address port_number\n", basename( argv[0] ) );
         return 1;
     }
+	
+	char buf[BUFFSIZE];
     const char* ip = argv[1];
     int port = atoi( argv[2] );  
 
@@ -39,49 +43,75 @@ int main( int argc, char* argv[] )
     assert( ret != -1 );
     printf("AFTER listen...\n");
     
-    //the returned client is client's address
-    struct sockaddr_in client;
-    socklen_t client_addrlength = sizeof( client );
-    int connfd = accept( sock, ( struct sockaddr* )&client, &client_addrlength ); //accept is a block function
-    printf("AFTER accept...\n");
+	while (1)
+	{
+		//the returned client is client's address
+		struct sockaddr_in client;
+		socklen_t client_addrlength = sizeof( client );
+		int connfd = accept( sock, ( struct sockaddr* )&client, &client_addrlength ); //accept is a block function
+		printf("AFTER accept...\n");
     
-    if ( connfd < 0 )
-    {
-        printf( "errno is: %d\n", errno );
-    }
-    else
-    {
-        //#define INET_ADDRSTRLEN 16 , IPV4 address char array length, <netinet/in.h>
-        char remote[INET_ADDRSTRLEN ];
-        printf( "connected with ip: %s and port: %d\n", 
-            inet_ntop( AF_INET, &client.sin_addr, remote, INET_ADDRSTRLEN ), ntohs( client.sin_port ) );
+		if ( connfd < 0 )
+		{
+			printf( "errno is: %d\n", errno );
+		}
+		else
+		{
+			//#define INET_ADDRSTRLEN 16 , IPV4 address char array length, <netinet/in.h>
+			char remote[INET_ADDRSTRLEN ];
+			printf( "connected cliet's ip: %s and port: %d\n", 
+				inet_ntop( AF_INET, &client.sin_addr, remote, INET_ADDRSTRLEN ), ntohs( client.sin_port ) );
         
-        //
-        printf("call getsockname ...\n");
-        struct sockaddr_in local_address;
-        socklen_t length;
-        int ret = getsockname(connfd, ( struct sockaddr* )&local_address, &length);
-        if (ret == 0)
-        {
-            char local[INET_ADDRSTRLEN ];
-            printf( "session server side's local connfd ip: %s and port: %d\n", inet_ntop( AF_INET, &local_address.sin_addr, local, INET_ADDRSTRLEN ), ntohs( local_address.sin_port ) );
-        }
-        else
-            printf("getsockname on connfd fail...\n");
+			//
+			printf("call getsockname ...\n");
+			struct sockaddr_in local_address;
+			socklen_t length;
+			int ret = getsockname(connfd, ( struct sockaddr* )&local_address, &length);
+			if (ret == 0)
+			{
+				char local[INET_ADDRSTRLEN ];
+				printf( "session server side's local connfd ip: %s and port: %d\n", inet_ntop( AF_INET, &local_address.	sin_addr, local, INET_ADDRSTRLEN ), ntohs( local_address.sin_port ) );
+			}
+			else
+			{
+				printf("getsockname on connfd fail...retcode: %d, errno: %d\n", ret, errno);
+				perror("getsockname(): ");
+			}
+            
 
-        bzero( &local_address, sizeof( local_address ) );
-        ret = getpeername(connfd, ( struct sockaddr* )&local_address, &length);
-        if (ret == 0)
-        {
-            char local1[INET_ADDRSTRLEN ];
-            printf( "(client's ip)remote ip: %s and port: %d\n", inet_ntop( AF_INET, &local_address.sin_addr, local1, INET_ADDRSTRLEN ), ntohs( local_address.sin_port ) );
+			bzero( &local_address, sizeof( local_address ) );
+			ret = getpeername(connfd, ( struct sockaddr* )&local_address, &length);
+			if (ret == 0)
+			{
+				char local1[INET_ADDRSTRLEN ];
+				printf( "(client's ip)remote ip: %s and port: %d\n", inet_ntop( AF_INET, &local_address.sin_addr, local1, INET_ADDRSTRLEN ), ntohs( local_address.sin_port ) );
 
-        }
-        else
-            printf("getpeername on connfd fail...\n");
+			}
+			else
+			{
+				printf("getpeername on connfd fail...retcode: %d, errno: %d\n", ret, errno);
+				perror("getpeername(): ");
+			}
+		
+			//recv data 
+			if (recv(connfd, buf, BUFFSIZE, 0) < 0)
+			{
+				perror("recv client data failed.\n");
+				exit(-1);
+			}
+			printf("recv from client: %s\n", buf);
+		
+			//send data
+			if (send(connfd, "server has received your msg\n", BUFFSIZE, 0) < 0)
+			{
+				perror("srv send to client failed.");
+				exit(-1);
+			}
 
-        close( connfd );
-    }
+			close( connfd );
+		}
+	}
+
 
     close( sock );
     return 0;

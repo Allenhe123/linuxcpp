@@ -19,10 +19,10 @@ int setnonblocking( int fd )
     return old_option;
 }
 
-//./connect 127.0.0.1 8888 512
+//./connect 127.0.0.1 8888
 int main( int argc, char* argv[] )
 {
-    if( argc <= 3 )
+    if( argc < 3 )
     {
         printf( "usage: %s ip_address port_number send_bufer_size\n", basename( argv[0] ) );
         return 1;
@@ -38,13 +38,32 @@ int main( int argc, char* argv[] )
 
     int sock = socket( PF_INET, SOCK_STREAM, 0 );
     assert( sock >= 0 );
+	
+	const char* clientlocalip = "127.0.0.1";
+	int clientlocalport = 6666;
+	struct sockaddr_in address;
+    bzero( &address, sizeof( address ) );
+    address.sin_family = AF_INET;
+    inet_pton( AF_INET, clientlocalip, &address.sin_addr );
+    address.sin_port = htons( clientlocalport );
+	
+//	int retcode = bind( sock, ( struct sockaddr* )&address, sizeof( address ) );
+//    assert( retcode != -1 );
+//    printf("AFTER bind...\n");
 
-    int sendbuf = atoi( argv[3] );
+	/*
+	//Linux从2.4开始支持接收缓冲和发送缓冲的动态调整。不用手动调整。
+	int defaultsize = 0;
+    int sendbuf = 32 * 1024; //32k
+	int changedsize = 0;
     int len = sizeof( sendbuf );
-    setsockopt( sock, SOL_SOCKET, SO_SNDBUF, &sendbuf, sizeof( sendbuf ) );
-    getsockopt( sock, SOL_SOCKET, SO_SNDBUF, &sendbuf, ( socklen_t* )&len );
-    printf( "the tcp send buffer size after setting is %d\n", sendbuf );
-
+    getsockopt( sock, SOL_SOCKET, SO_SNDBUF, &defaultsize, ( socklen_t* )&len );
+    printf( "default tcp send buffer size before setting is %d\n", defaultsize );
+	printf("set the sendbuffer size to %d\n", sendbuf);
+	setsockopt( sock, SOL_SOCKET, SO_SNDBUF, &sendbuf, sizeof( int ) );
+	getsockopt( sock, SOL_SOCKET, SO_SNDBUF, &changedsize, ( socklen_t* )&len );
+	printf( "after setting tcp send buffer size is %d\n", changedsize );
+*/
     int old_option = fcntl( sock, F_GETFL );
     printf("noblock: %d\n", old_option & O_NONBLOCK); //0-->block mode
 
@@ -63,13 +82,12 @@ int main( int argc, char* argv[] )
         bzero(&local_address, sizeof(local_address));
         socklen_t length;
         int ret = getsockname(sock, ( struct sockaddr* )&local_address, &length);
-        assert(ret == 0);
+       // assert(ret == 0);
         char local[INET_ADDRSTRLEN ];
         printf( "client's local with ip: %s and port: %d\n",
             inet_ntop( AF_INET, &local_address.sin_addr, local, INET_ADDRSTRLEN ), ntohs( local_address.sin_port ) );
         //
         bzero(&local_address, sizeof(local_address));
-        assert(ret == 0);
         ret = getpeername(sock, ( struct sockaddr* )&local_address, &length);
         char peer[INET_ADDRSTRLEN ];
         printf( "server's ip: %s and port: %d\n",
@@ -77,8 +95,24 @@ int main( int argc, char* argv[] )
 
         //
         char buffer[ BUFFER_SIZE ];
-        memset( buffer, 'a', BUFFER_SIZE );
-        send( sock, buffer, BUFFER_SIZE, 0 );
+        memset( buffer, '##############', BUFFER_SIZE );
+		
+		//send data
+		if (send(sock, buffer, BUFFER_SIZE, 0) < 0)
+		{
+			perror("client send to srv failed.");
+			exit(-1);
+		}
+		
+		//recv data
+		if (recv(sock, buffer, BUFFER_SIZE, 0) < 0)
+		{
+			perror("recv srv data failed.\n");
+			exit(-1);
+		}
+		printf("recv from srv: %s\n", buffer);
+		
+        //send( sock, buffer, BUFFER_SIZE, 0 );
     }
     else if (ret == -1)
     {
