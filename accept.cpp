@@ -65,19 +65,10 @@ int main( int argc, char* argv[] )
 			//
 			printf("call getsockname ...\n");
 			struct sockaddr_in local_address;
-			socklen_t length;
-			int ret = getsockname(connfd, ( struct sockaddr* )&local_address, &length);
-			if (ret == 0)
-			{
-				char local[INET_ADDRSTRLEN ];
-				printf( "session server side's local connfd ip: %s and port: %d\n", inet_ntop( AF_INET, &local_address.	sin_addr, local, INET_ADDRSTRLEN ), ntohs( local_address.sin_port ) );
-			}
-			else
-			{
-				printf("getsockname on connfd fail...retcode: %d, errno: %d\n", ret, errno);
-				perror("getsockname(): ");
-			}
-            
+			
+			//MUST init length to right size the first time to call getpeername or getsockname !!!!
+			socklen_t length = sizeof(local_address);
+			int ret = 0;
 
 			bzero( &local_address, sizeof( local_address ) );
 			ret = getpeername(connfd, ( struct sockaddr* )&local_address, &length);
@@ -91,6 +82,19 @@ int main( int argc, char* argv[] )
 			{
 				printf("getpeername on connfd fail...retcode: %d, errno: %d\n", ret, errno);
 				perror("getpeername(): ");
+			}
+
+			bzero( &local_address, sizeof( local_address ) );
+			ret = getsockname(connfd, ( struct sockaddr* )&local_address, &length);
+			if (ret == 0)
+			{
+				char locall[INET_ADDRSTRLEN ];
+				printf( "session server side's local connfd ip: %s and port: %d\n", inet_ntop( AF_INET, &local_address.sin_addr, locall, INET_ADDRSTRLEN ), ntohs( local_address.sin_port ) );
+			}
+			else
+			{
+				printf("getsockname on connfd fail...retcode: %d, errno: %d\n", ret, errno);
+				perror("getsockname(): ");
 			}
 		
 			//recv data 

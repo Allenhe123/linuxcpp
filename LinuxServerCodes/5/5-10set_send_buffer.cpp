@@ -27,8 +27,16 @@ int main( int argc, char* argv[] )
     int sock = socket( PF_INET, SOCK_STREAM, 0 );
     assert( sock >= 0 );
 
+    //
+    int sendbuf_old;
+    int len_old = sizeof(sendbuf_old);
+    getsockopt( sock, SOL_SOCKET, SO_SNDBUF, &sendbuf_old, ( socklen_t* )&len_old );
+    printf( "the tcp send buffer size before setting is %d\n", sendbuf_old );
+    //
+
     int sendbuf = atoi( argv[3] );
-    int len = sizeof( sendbuf );
+    int len = sizeof( sendbuf ); //int len = sizeof(int);
+    
     setsockopt( sock, SOL_SOCKET, SO_SNDBUF, &sendbuf, sizeof( sendbuf ) );
     getsockopt( sock, SOL_SOCKET, SO_SNDBUF, &sendbuf, ( socklen_t* )&len );
     printf( "the tcp send buffer size after setting is %d\n", sendbuf );

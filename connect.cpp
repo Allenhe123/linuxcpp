@@ -80,7 +80,8 @@ int main( int argc, char* argv[] )
         printf("connect successful! call getsockname ...\n");
         struct sockaddr_in local_address;
         bzero(&local_address, sizeof(local_address));
-        socklen_t length;
+        //MUST init length to right size the first time to call getpeername or getsockname !!!!
+        socklen_t length = sizeof(local_address);
         int ret = getsockname(sock, ( struct sockaddr* )&local_address, &length);
        // assert(ret == 0);
         char local[INET_ADDRSTRLEN ];
