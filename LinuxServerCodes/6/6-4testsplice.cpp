@@ -9,6 +9,8 @@
 #include <string.h>
 #include <fcntl.h>
 
+//使用splice实现的回显服务器  
+
 int main( int argc, char* argv[] )
 {
     if( argc <= 2 )
@@ -46,8 +48,16 @@ int main( int argc, char* argv[] )
         int pipefd[2];
         assert( ret != -1 );
         ret = pipe( pipefd );
+		//connfd --> pipefd[1]
         ret = splice( connfd, NULL, pipefd[1], NULL, 32768, SPLICE_F_MORE | SPLICE_F_MOVE ); 
         assert( ret != -1 );
+
+//		char buf[256];
+//		ret = read(pipefd[0], buf, 256);
+//		assert(ret != -1);
+//		printf("recv data from client:%s, size=%d", buf, ret);
+
+		//pipefd[0] --> connfd
         ret = splice( pipefd[0], NULL, connfd, NULL, 32768, SPLICE_F_MORE | SPLICE_F_MOVE );
         assert( ret != -1 );
         close( connfd );
@@ -57,3 +67,10 @@ int main( int argc, char* argv[] )
     return 0;
 }
 
+/*
+splice用于在两个文件描述符之间移动数据， 也是零拷贝。
+使用splice时， fd_in和fd_out中必须至少有一个是管道文件描述符。
+
+调用成功时返回移动的字节数量；它可能返回0,表示没有数据需要移动，这通常发生在从管道中读数据时而该管道没有被写入的时候。
+失败时返回-1，并设置errno
+   */

@@ -95,6 +95,7 @@ int main( int argc, char* argv[] )
             iv[ 1 ].iov_base = file_buf;
             iv[ 1 ].iov_len = file_stat.st_size;
             ret = writev( connfd, iv, 2 );
+			printf("call writev connfd, len1=%d, len2=%d, lenwrite=%d\n", iv[0].iov_len, iv[1].iov_len, ret);
         }
         else
         {
