@@ -39,7 +39,7 @@ int main( int argc, char* argv[] )
     }
 
     pollfd fds[2];
-    fds[0].fd = 0;
+    fds[0].fd = 0; // STDIN
     fds[0].events = POLLIN;
     fds[0].revents = 0;
     fds[1].fd = sockfd;
@@ -67,13 +67,16 @@ int main( int argc, char* argv[] )
         else if( fds[1].revents & POLLIN )
         {
             memset( read_buf, '\0', BUFFER_SIZE );
+			// sockfd --> readbuf
             recv( fds[1].fd, read_buf, BUFFER_SIZE-1, 0 );
             printf( "%s\n", read_buf );
         }
 
         if( fds[0].revents & POLLIN )
         {
+			// STDIN --> pipefd[1]
             ret = splice( 0, NULL, pipefd[1], NULL, 32768, SPLICE_F_MORE | SPLICE_F_MOVE );
+			// pipefd[0] --> sockfd
             ret = splice( pipefd[0], NULL, sockfd, NULL, 32768, SPLICE_F_MORE | SPLICE_F_MOVE );
         }
     }
@@ -81,3 +84,4 @@ int main( int argc, char* argv[] )
     close( sockfd );
     return 0;
 }
+
