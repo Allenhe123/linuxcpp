@@ -58,7 +58,7 @@ int main( int argc, char* argv[] )
     assert( ret != -1 );
 
     client_data* users = new client_data[FD_LIMIT];
-    pollfd fds[USER_LIMIT+1];
+    pollfd fds[USER_LIMIT+1]; // size is 6
     int user_counter = 0;
     for( int i = 1; i <= USER_LIMIT; ++i )
     {
@@ -78,9 +78,10 @@ int main( int argc, char* argv[] )
             break;
         }
     
+		//遍历fds查看哪些fd的事件触发
         for( int i = 0; i < user_counter+1; ++i )
         {
-            if( ( fds[i].fd == listenfd ) && ( fds[i].revents & POLLIN ) )
+            if( ( fds[i].fd == listenfd ) && ( fds[i].revents & POLLIN ) ) //listenfd可读表示有连接到来
             {
                 struct sockaddr_in client_address;
                 socklen_t client_addrlength = sizeof( client_address );
@@ -119,11 +120,15 @@ int main( int argc, char* argv[] )
                 continue;
             }
             else if( fds[i].revents & POLLRDHUP )
-            {
+            {	// 最后一个user移动到当前user的位置
                 users[fds[i].fd] = users[fds[user_counter].fd];
+				// close当前的fd
                 close( fds[i].fd );
+				// fds数组中最后一个fd移动到当前的fd
                 fds[i] = fds[user_counter];
+				// 当前索引减一，防止异常和溢出
                 i--;
+				// user_counter减一
                 user_counter--;
                 printf( "a client left\n" );
             }
@@ -138,17 +143,21 @@ int main( int argc, char* argv[] )
                     if( errno != EAGAIN )
                     {
                         close( connfd );
+						// 最后一个user移动到当前user的位置
                         users[fds[i].fd] = users[fds[user_counter].fd];
+						// 最后一个fd移动到当前的fds
                         fds[i] = fds[user_counter];
+						// 当前索引减一，防止异常和溢出
                         i--;
-                        user_counter--;
+						// 最后把user_counter减一
+                        user_counter--; 
                     }
                 }
                 else if( ret == 0 )
                 {
                     printf( "code should not come to here\n" );
                 }
-                else
+                else // 正常接收到了数据
                 {
                     for( int j = 1; j <= user_counter; ++j )
                     {
@@ -157,13 +166,16 @@ int main( int argc, char* argv[] )
                             continue;
                         }
                         
+						// server收到一个client的数据后，广播给连接到同server的其他的client
                         fds[j].events |= ~POLLIN;
                         fds[j].events |= POLLOUT;
+						// 收到的数据赋值给write_buf
                         users[fds[j].fd].write_buf = users[connfd].buf;
                     }
                 }
             }
-            else if( fds[i].revents & POLLOUT )
+			// 发送缓冲区只要没满就可以写，只要侦听了EPOLLOUT事件，每次循环都会触发。
+            else if( fds[i].revents & POLLOUT ) // 检测到写数据事件
             {
                 int connfd = fds[i].fd;
                 if( ! users[connfd].write_buf )

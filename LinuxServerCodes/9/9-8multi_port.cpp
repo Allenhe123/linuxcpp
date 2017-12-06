@@ -51,6 +51,7 @@ int main( int argc, char* argv[] )
     inet_pton( AF_INET, ip, &address.sin_addr );
     address.sin_port = htons( port );
 
+	// TCP socket
     int listenfd = socket( PF_INET, SOCK_STREAM, 0 );
     assert( listenfd >= 0 );
 
@@ -64,6 +65,7 @@ int main( int argc, char* argv[] )
     address.sin_family = AF_INET;
     inet_pton( AF_INET, ip, &address.sin_addr );
     address.sin_port = htons( port );
+	// UDP socket
     int udpfd = socket( PF_INET, SOCK_DGRAM, 0 );
     assert( udpfd >= 0 );
 
@@ -105,6 +107,8 @@ int main( int argc, char* argv[] )
                 ret = recvfrom( udpfd, buf, UDP_BUFFER_SIZE-1, 0, ( struct sockaddr* )&client_address, &client_addrlength );
                 if( ret > 0 )
                 {
+					printf("recvfrom udp data:%s\n", buf);
+					printf("send the same data to client.\n");
                     sendto( udpfd, buf, UDP_BUFFER_SIZE-1, 0, ( struct sockaddr* )&client_address, client_addrlength );
                 }
             }
@@ -130,6 +134,8 @@ int main( int argc, char* argv[] )
                     }
                     else
                     {
+						printf("recv tcp data:%s\n", buf);
+						printf("send the same data to client.\n");
                         send( sockfd, buf, ret, 0 );
                     }
                 }
