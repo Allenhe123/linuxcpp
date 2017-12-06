@@ -46,7 +46,9 @@ void addsig( int sig )
     struct sigaction sa;
     memset( &sa, '\0', sizeof( sa ) );
     sa.sa_handler = sig_handler;
+    // auto restart the system call which was interrupted by signal
     sa.sa_flags |= SA_RESTART;
+    // init all signal, shield all signals
     sigfillset( &sa.sa_mask );
     assert( sigaction( sig, &sa, NULL ) != -1 );
 }
@@ -91,7 +93,7 @@ int main( int argc, char* argv[] )
 
     ret = socketpair( PF_UNIX, SOCK_STREAM, 0, pipefd );
     assert( ret != -1 );
-    setnonblocking( pipefd[1] );
+    setnonblocking( pipefd[1] ); // non-block write, maybe write some signals at the same time
     addfd( epollfd, pipefd[0] );
 
     // add all the interesting signals here
@@ -138,6 +140,7 @@ int main( int argc, char* argv[] )
                     for( int i = 0; i < ret; ++i )
                     {
                         //printf( "I caugh the signal %d\n", signals[i] );
+                        // each signal use 1 byte!
                         switch( signals[i] )
                         {
                             case SIGCHLD:
@@ -148,6 +151,7 @@ int main( int argc, char* argv[] )
                             case SIGTERM:
                             case SIGINT:
                             {
+                            	printf("stop server\n");
                                 stop_server = true;
                             }
                         }
@@ -156,6 +160,38 @@ int main( int argc, char* argv[] )
             }
             else
             {
+            	if (events[i].events & EPOLLIN )
+            	{
+            		int fd = events[i].data.fd;
+            		char buf[1024];
+            		while (1)
+            		{
+            			memset(buf,'\0', 1024);
+            			int ret = recv(fd, buf, 1023, 0);
+            			if (ret == 0)
+            			{
+            				printf("peer host close connection, so close my socket.\n");
+            				close(fd);
+            				break;
+            			}
+            			else if (ret < 0)
+            			{
+            				if (errno == EAGAIN || errno == EWOULDBLOCK)
+            				{
+            					break;
+            				}
+            				else
+            				{
+            					close(fd);
+            				}
+            			}
+            			else
+            			{
+            				printf("recv data:%s\n", buf);
+            				send(fd, buf, 1024, 0);
+            			}
+            		}
+            	}
             }
         }
     }

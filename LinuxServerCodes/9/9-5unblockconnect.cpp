@@ -107,8 +107,8 @@ int main( int argc, char* argv[] )
     {
         return 1;
     }
-    shutdown( sockfd, SHUT_WR );
-    sleep( 200 );
+    //shutdown( sockfd, SHUT_WR );
+    //sleep( 200 );
     printf( "send data out\n" );
     send( sockfd, "abc", 3, 0 );
     //sleep( 600 );
