@@ -174,6 +174,7 @@ int main( int argc, char* argv[] )
                     }
                 }
             }
+			// 发送缓冲区只要没满就可以写，只要侦听了EPOLLOUT事件，每次循环都会触发。
             else if( fds[i].revents & POLLOUT ) // 检测到写数据事件
             {
                 int connfd = fds[i].fd;
