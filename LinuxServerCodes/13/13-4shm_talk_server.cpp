@@ -15,6 +15,21 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+// g++ 13-4shm_talk_server.cpp -o talk -lrt
+
+/*
+   Where to Put Library Options:Always put the -l library options at the rightmost end of your compilation command line.
+
+   -llibrary
+   -l library
+   Search the library named library when linking. 
+   (The second alternative with the library as a separate argument is only for POSIX compliance and is not recommended.)
+
+   It makes a difference where in the command you write this option;
+   the linker searches and processes libraries and object files in the order they are specified.
+   Thus, `foo.o -lz bar.o' searches library `z' after file foo.o but before bar.o. If bar.o refers to functions in `z', those functions may not be loaded.
+*/
+
 #define USER_LIMIT 5
 #define BUFFER_SIZE 1024
 #define FD_LIMIT 65535
@@ -61,7 +76,7 @@ void sig_handler( int sig )
 {
     int save_errno = errno;
     int msg = sig;
-    send( sig_pipefd[1], ( char* )&msg, 1, 0 );
+    send( sig_pipefd[1], ( char* )&msg, 1, 0 ); //send sig to sig_pipefd[1]
     errno = save_errno;
 }
 
@@ -212,19 +227,20 @@ int main( int argc, char* argv[] )
 
     ret = socketpair( PF_UNIX, SOCK_STREAM, 0, sig_pipefd );
     assert( ret != -1 );
-    setnonblocking( sig_pipefd[1] );
-    addfd( epollfd, sig_pipefd[0] );
+    setnonblocking( sig_pipefd[1] ); // write is non-blocking
+    addfd( epollfd, sig_pipefd[0] ); // listening sig_pipefd read event
 
     addsig( SIGCHLD, sig_handler );
     addsig( SIGTERM, sig_handler );
     addsig( SIGINT, sig_handler );
-    addsig( SIGPIPE, SIG_IGN );
+    addsig( SIGPIPE, SIG_IGN );   //ignore SIGPIPE signal
     bool stop_server = false;
     bool terminate = false;
 
+	// create a share memory object
     shmfd = shm_open( shm_name, O_CREAT | O_RDWR, 0666 );
     assert( shmfd != -1 );
-    ret = ftruncate( shmfd, USER_LIMIT * BUFFER_SIZE ); 
+    ret = ftruncate( shmfd, USER_LIMIT * BUFFER_SIZE ); // adjust shmfd's size to USER_LIMIT * BUFFER_SIZE
     assert( ret != -1 );
 
     share_mem = (char*)mmap( NULL, USER_LIMIT * BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0 );
@@ -272,26 +288,27 @@ int main( int argc, char* argv[] )
                     continue;
                 }
                 else if( pid == 0 )
-                {
+                {   //close unused fd
                     close( epollfd );
                     close( listenfd );
-                    close( users[user_count].pipefd[0] );
+                    close( users[user_count].pipefd[0] );//close read, child process will write to share memory
                     close( sig_pipefd[0] );
                     close( sig_pipefd[1] );
                     run_child( user_count, users, share_mem );
                     munmap( (void*)share_mem,  USER_LIMIT * BUFFER_SIZE );
-                    exit( 0 );
+                    exit( 0 ); // child process exit
                 }
                 else
                 {
                     close( connfd );
                     close( users[user_count].pipefd[1] );
-                    addfd( epollfd, users[user_count].pipefd[0] );
+                    addfd( epollfd, users[user_count].pipefd[0] ); //parent process listening pipe read event
                     users[user_count].pid = pid;
                     sub_process[pid] = user_count;
                     user_count++;
                 }
             }
+			//got signal event
             else if( ( sockfd == sig_pipefd[0] ) && ( events[i].events & EPOLLIN ) )
             {
                 int sig;
@@ -311,7 +328,7 @@ int main( int argc, char* argv[] )
                     {
                         switch( signals[i] )
                         {
-                            case SIGCHLD:
+                            case SIGCHLD: //child process exit
                             {
 	                        pid_t pid;
 	                        int stat;
