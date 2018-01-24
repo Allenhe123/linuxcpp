@@ -29,11 +29,12 @@ int main()
     pthread_mutex_init( &mutex, NULL );
     pthread_t id;
     pthread_create( &id, NULL, another, NULL );
-    //pthread_atfork( prepare, infork, infork );
+    pthread_atfork( prepare, infork, infork );
     sleep( 1 );
     int pid = fork();
     if( pid < 0 )
     {
+    	printf( "I should not run to here, holy shit...\n" );
         pthread_join( id, NULL );
         pthread_mutex_destroy( &mutex );
         return 1;
@@ -48,9 +49,11 @@ int main()
     }
     else
     {
+    	printf( "I am parent  process...\n" );
         pthread_mutex_unlock( &mutex );
         wait( NULL );
     }
+    printf( "I am parent  process last ...\n" );
     pthread_join( id, NULL );
     pthread_mutex_destroy( &mutex );
     return 0;
