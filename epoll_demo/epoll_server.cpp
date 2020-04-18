@@ -10,12 +10,17 @@
 #include <unistd.h>
 #include <sys/types.h>
 
+#include <cassert>
+#include <map>
+
 #define IPADDRESS   "127.0.0.1"
 #define PORT        8787
 #define MAXSIZE     1024
 #define LISTENQ     5
 #define FDSIZE      1000
 #define EPOLLEVENTS 100
+
+std::map<int32_t, std::string> g_clients;
 
 //创建套接字并进行绑定
 static int socket_bind(const char* ip,int port);
@@ -36,6 +41,7 @@ static void modify_event(int epollfd,int fd,int event);
 //删除事件
 static void delete_event(int epollfd,int fd,int event);
 
+// 强制关闭server后，socket处于TIME_WAIT状态，不能马上重启。。。
 int main(int argc, char *argv[])
 {
     int  listenfd;
@@ -117,59 +123,169 @@ static void handle_events(int epollfd, struct epoll_event *events, int num, int 
 }
 static void handle_accpet(int epollfd,int listenfd)
 {
-    printf("listenfd: %d\n");
+    printf("listenfd: %d\n", listenfd);
     int clifd;
     struct sockaddr_in client_addr;
-    socklen_t  client_addrlen;
-    clifd = accept(listenfd, (struct sockaddr*)&client_addr, &client_addrlen);
+    socklen_t  len;
+    len = sizeof(client_addr);  // 一定要初始化len！
+    clifd = accept(listenfd, (struct sockaddr*)&client_addr, &len);
     if (clifd == -1) {
         perror("accpet error:");
-        
-
     }
     else
     {
+        char address[128] = {0};
+        snprintf(address, 128, "%s:%d", inet_ntoa(client_addr.sin_addr), client_addr.sin_port);
+
+        g_clients.insert(std::make_pair(clifd, address));
         printf("accept a new client: %s:%d\n", inet_ntoa(client_addr.sin_addr), client_addr.sin_port);
         //添加一个客户描述符和事件
         add_event(epollfd, clifd, EPOLLIN);
     }
 }
 
-static void do_read(int epollfd, int fd, char *buf)
+static void do_read(int epollfd, int fd, char* buf)
 {
-    int nread;
-    nread = read(fd, buf, MAXSIZE);
-    if (nread == -1)
+    // read msg header
+    bool read_error = false;
+    int32_t header_len = sizeof(int32_t);
+    char* header_buf = new char[header_len];
+    char* header_buf_origin = header_buf;
+    while (header_len > 0)
     {
-        perror("read error would close this session:");
-        close(fd);
-        delete_event(epollfd, fd, EPOLLIN);
+        int nread = read(fd, buf, header_len);
+        if (nread == -1)
+        {
+            perror("read error would close session:");
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                continue;
+            else
+            {
+                read_error = true;
+                break;
+            }
+        }
+        else if (nread == 0)
+        {
+            auto ite = g_clients.find(fd);
+            assert(ite != g_clients.end());
+            fprintf(stderr, "client %s close.\n", ite->second.c_str());
+            read_error = true;
+            break;
+        }
+        else
+        {
+            if (nread < header_len)
+            {
+                memcpy(header_buf, buf, nread);
+                header_len -= nread;
+                header_buf += nread;
+            }
+            else
+            {
+                memcpy(header_buf, buf, nread);
+                break;
+            }
+        }
     }
-    else if (nread == 0)
+
+    printf("msg len: %d\n", *(int32_t*)header_buf_origin);
+
+    // read msg data
+    if (!read_error)
     {
-        fprintf(stderr, "client close.\n");
-        delete_event(epollfd, fd, EPOLLIN);
-        close(fd);
-    }
-    else
-    {
-        printf("read: %s",buf);
+        int32_t len = *(int32_t*)header_buf_origin;
+        char* pbuffer = new char[len];
+        char* buffer_origin = pbuffer;
+        int readed = 0;
+        while (len > MAXSIZE)
+        {
+            readed = read(fd, buf, MAXSIZE);
+            if (readed == 0)
+            {
+                read_error = true;
+                break;
+            }
+            else if (readed == -1)
+            {
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                    continue;
+                else
+                {
+                    read_error = true;
+                    break;
+                }
+            }
+
+            memcpy(pbuffer, buf, readed);
+            pbuffer += readed;
+            len -= readed;
+        }
+        while (!read_error)
+        {
+            readed = read(fd, buf, len);
+            if (readed == 0)
+            {
+                read_error = true;
+                break;
+            }
+            else if (readed == -1)
+            {
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                    continue;
+                else
+                {
+                    read_error = true;
+                    break;
+                }
+            }
+
+            memcpy(pbuffer, buf, readed);
+            pbuffer += readed;
+            len  -= readed;
+            if (len <= 0) break;
+        }
+
+        printf("recv msg: %s\n", buffer_origin);
+        delete []buffer_origin;
+
         //修改描述符对应的事件，由读改为写(为何每次都要修改???)
-        modify_event(epollfd, fd, EPOLLOUT);
+        if (!read_error)
+            modify_event(epollfd, fd, EPOLLOUT);
+    }
+    delete []header_buf_origin;
+
+    if (read_error)
+    {
+        delete_event(epollfd, fd, EPOLLIN);
+        close(fd);
     }
 }
 
-static void do_write(int epollfd,int fd,char *buf)
+static void do_write(int epollfd, int fd, char *buf)
 {
-    int nwrite = write(fd,buf,strlen(buf));
-    if (nwrite == -1)
+    int32_t msg_len = strlen(buf);
+    char* buffer = new char[msg_len + sizeof(int32_t)];
+    char* buffer_ori = buffer;
+    memcpy(buffer, &msg_len , sizeof(int32_t));
+    buffer += sizeof(int32_t);
+    memcpy(buffer, buf, msg_len);
+
+    int32_t len = msg_len + sizeof(int32_t);
+    while (len > 0)
     {
-        perror("write error would close this session:");
-        close(fd);
-        delete_event(epollfd, fd, EPOLLOUT);
+        int nwrite = write(fd, buffer_ori, len);
+        if (nwrite == -1)
+        {
+            perror("write error would close session:");
+            close(fd);
+            break;
+        }
+        len -= nwrite;
+        buffer_ori += nwrite;
     }
-    else
-        modify_event(epollfd, fd, EPOLLIN);
+    modify_event(epollfd, fd, EPOLLIN);
+     
     memset(buf, 0, MAXSIZE);
 }
 
