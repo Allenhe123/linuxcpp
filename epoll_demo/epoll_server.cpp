@@ -66,7 +66,7 @@ static int socket_bind(const char* ip,int port)
     }
 
     int optval = 0;
-    if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const void*)& optval, sizeof(int)) < 0) {
+    if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval, sizeof(optval)) < 0) {
         perror("setsocketopt for SO_REUSEADDR failed:");
     }
 
