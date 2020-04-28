@@ -1,11 +1,12 @@
 #include "Server.h"
 #include <cassert>
 #include <vector>
+#include <thread>
+#include <chrono>
 
 
 Server::Server(const char* ip, int32_t port, int32_t backlog): ip_(ip), port_(port), backlog_(backlog)
-{
-    
+{   
     listenfd_ = socket(AF_INET,SOCK_STREAM, 0);
     if (listenfd_ == -1)
     {
@@ -18,16 +19,18 @@ Server::Server(const char* ip, int32_t port, int32_t backlog): ip_(ip), port_(po
         perror("setsocketopt for SO_REUSEADDR failed:");
     }
 
-    if (bind() == -1)
-    {
-        perror("bind error: ");
-        exit(1);
-    }
+    poller_.reset(new Epoller());
 
-    if (listen() ==  -1) {
-        perror("bind error: ");
-        exit(1);
-    }
+    // if (bind() == -1)
+    // {
+    //     perror("bind error: ");
+    //     exit(1);
+    // }
+
+    // if (listen() ==  -1) {
+    //     perror("bind error: ");
+    //     exit(1);
+    // }
 
 }
 
@@ -42,14 +45,14 @@ int Server::listen() {
     return listen(listenfd_, backlog_);
 }
 
-int Server::bind(const struct sockaddr *addr, socklen_t addrlen) {
+int Server::bind() {
     assert(listenfd_ != -1 && poller_ != nullptr);
     struct sockaddr_in servaddr;
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     inet_pton(AF_INET, ip_.c_str(), &servaddr.sin_addr);
     servaddr.sin_port = htons(port_);
-    return bind(listenfd_, addr, addrlen);
+    return bind(listenfd_, (struct sockaddr*)&servaddr,sizeof(servaddr));
 }
 
 void Server::loop() {
@@ -61,56 +64,187 @@ void Server::loop() {
         }
         std::vector<Response> resp = poller_->wait();
         for (const auto& r : resp) {
-            if (r.event & EPOLLIN)
-                 do_read(epollfd, fd, sockfd, buf);
+            if (r.fd == listenfd_)
+                handle_accept();
+            else if (r.event & EPOLLIN)
+                handle_read(r.fd);
             else if (r.event & EPOLLOUT)
-                do_write(epollfd, fd, sockfd, buf);
+                handle_write(r.fd);
         }
     }
 }
 
-int Session::accept(struct sockaddr *addr, socklen_t *addrlen) -> SessionPtr {
-  ACHECK(fd_ != -1);
 
-  int sock_fd = accept4(fd_, addr, addrlen, SOCK_NONBLOCK);
-  while (sock_fd == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-    poll_handler_->Block(-1, true);
-    sock_fd = accept4(fd_, addr, addrlen, SOCK_NONBLOCK);
-  }
-
-  if (sock_fd == -1) {
-    return nullptr;
-  }
-
-  return std::make_shared<Session>(sock_fd);
-}
-
-int Session::Connect(const struct sockaddr *addr, socklen_t addrlen) {
-  ACHECK(fd_ != -1);
-
-  int optval;
-  socklen_t optlen = sizeof(optval);
-  int res = connect(fd_, addr, addrlen);
-  if (res == -1 && errno == EINPROGRESS) {
-    poll_handler_->Block(-1, false);
-    getsockopt(fd_, SOL_SOCKET, SO_ERROR, reinterpret_cast<void *>(&optval),
-               &optlen);
-    if (optval == 0) {
-      res = 0;
-    } else {
-      errno = optval;
+void Server::handle_accpet()
+{
+    struct sockaddr_in client_addr;
+    socklen_t len = sizeof(client_addr);
+    int sock_fd = accept4(listenfd_, (struct sockaddr*)&client_addr, &len, SOCK_NONBLOCK);
+    while (sock_fd == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));  // block?
+        sock_fd = accept4(listenfd_, (struct sockaddr*)&client_addr, &len, SOCK_NONBLOCK);
     }
-  }
-  return res;
+    if (sock_fd == -1) {
+        perror("accpet error:");
+    }
+    else
+    {
+        char address[128] = {0};
+        snprintf(address, 128, "%s:%d", inet_ntoa(client_addr.sin_addr), client_addr.sin_port);
+        connect_clients_.insert(std::make_pair(sock_fd, address));
+        printf("accept a new client: %s:%d\n", inet_ntoa(client_addr.sin_addr), client_addr.sin_port);
+
+        poller_->add_event(sock_fd, EPOLLIN, -1);
+    }
 }
 
-int Session::Close() {
-  ACHECK(fd_ != -1);
 
-  poll_handler_->Unblock();
-  int res = close(fd_);
-  fd_ = -1;
-  return res;
+void  Server::handle_read(int fd) {
+    static const uint32_t MAXSIZE = 1024;
+    static const char buf[MAXSIZE] = {0};
+    // read msg header
+    bool read_error = false;
+    int32_t header_len = sizeof(int32_t);
+    char* header_buf = new char[header_len];
+    char* header_buf_origin = header_buf;
+    while (header_len > 0)
+    {
+        int nread = read(fd, buf, header_len);
+        if (nread == -1)
+        {
+            perror("read error would close session:");
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                continue;
+            else
+            {
+                read_error = true;
+                break;
+            }
+        }
+        else if (nread == 0)
+        {
+            auto ite = connect_clients_.find(fd);
+            assert(ite != connect_clients_.end());
+            fprintf(stderr, "client %s close.\n", ite->second.c_str());
+            read_error = true;
+            break;
+        }
+        else
+        {
+            if (nread < header_len)
+            {
+                memcpy(header_buf, buf, nread);
+                header_len -= nread;
+                header_buf += nread;
+            }
+            else
+            {
+                memcpy(header_buf, buf, nread);
+                break;
+            }
+        }
+    }
+
+    printf("msg len: %d\n", *(int32_t*)header_buf_origin);
+
+    // read msg data
+    if (!read_error)
+    {
+        int32_t len = *(int32_t*)header_buf_origin;
+        char* pbuffer = new char[len];
+        char* buffer_origin = pbuffer;
+        int readed = 0;
+        while (len > MAXSIZE)
+        {
+            readed = read(fd, buf, MAXSIZE);
+            if (readed == 0)
+            {
+                read_error = true;
+                break;
+            }
+            else if (readed == -1)
+            {
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                    continue;
+                else
+                {
+                    read_error = true;
+                    break;
+                }
+            }
+
+            memcpy(pbuffer, buf, readed);
+            pbuffer += readed;
+            len -= readed;
+        }
+        while (!read_error)
+        {
+            readed = read(fd, buf, len);
+            if (readed == 0)
+            {
+                read_error = true;
+                break;
+            }
+            else if (readed == -1)
+            {
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                    continue;
+                else
+                {
+                    read_error = true;
+                    break;
+                }
+            }
+
+            memcpy(pbuffer, buf, readed);
+            pbuffer += readed;
+            len  -= readed;
+            if (len <= 0) break;
+        }
+
+        printf("recv msg: %s\n", buffer_origin);
+        delete []buffer_origin;
+
+        //修改描述符对应的事件，由读改为写(为何每次都要修改???)
+        if (!read_error)
+            modify_event(epollfd, fd, EPOLLOUT);
+    }
+    delete []header_buf_origin;
+
+    if (read_error)
+    {
+        delete_event(epollfd, fd, EPOLLIN);
+        close(fd);
+    }
+}
+
+
+void Server::handle_write(int fd) {
+    int32_t msg_len = strlen(buf);
+    char* buffer = new char[msg_len + sizeof(int32_t)];
+    char* buffer_ori = buffer;
+    memcpy(buffer, &msg_len , sizeof(int32_t));
+    buffer += sizeof(int32_t);
+    memcpy(buffer, buf, msg_len);
+
+    int32_t len = msg_len + sizeof(int32_t);
+    while (len > 0)
+    {
+        int nwrite = write(fd, buffer_ori, len);
+        if (nwrite == -1)
+        {
+            perror("write error would close session:");
+            close(fd);
+            break;
+        }
+        len -= nwrite;
+        buffer_ori += nwrite;
+    }
+    poller_->modify_event(fd, EPOLLIN);
+    // modify_event(epollfd, fd, EPOLLIN);
+     
+    memset(buf, 0, MAXSIZE);
 }
 
 ssize_t Session::Recv(void *buf, size_t len, int flags, int timeout_ms) {

@@ -24,7 +24,9 @@ struct Response {
     uint32_t event;
 };
 
-class Epoller 
+//LT , ET ?
+
+class Epoller
 {
 public:
     explicit Epoller(uint32_t fdsize = 1024, uint32_t max_event = 20): 

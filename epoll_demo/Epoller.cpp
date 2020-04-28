@@ -2,7 +2,7 @@
 #include <iostream>
 
 void Epoller::init() {
-    epollfd_ = epoll_create(epoll_size_);
+    epollfd_ = epoll_create(fd_size_);
     if (epollfd_ == -1) {
         perror("epoll_create failed:");
     }

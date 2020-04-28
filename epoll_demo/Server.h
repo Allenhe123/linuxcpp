@@ -14,8 +14,11 @@ class Server
 {
 public:
     Server(const char* ip, int32_t port, int32_t backlog = 5);
-    virtual ~Server() { close(sockfd_);}
+    virtual ~Server() { close(listenfd_);}
 
+
+    int listen();
+    int bind();
     void loop();
 
   // timeout_ms < 0, keep trying until the operation is successfully
@@ -25,16 +28,19 @@ public:
   ssize_t Send(const void *buf, size_t len, int flags, int timeout_ms = -1);
 
 private:
-    int listen();
-    int bind();
+    void handle_accpet();
+    void handle_read(int fd);
+    void handle_wrte(int fd);
 
 private:
-    std::string ip_;
+    std::string ip_ = "";
     int32_t port_;
     int32_t backlog_;
     int listenfd_ = -1;
     std::unique_ptr<Epoller> poller_ = nullptr;
     bool peer_closed_ = false;
+
+    std::unordered_map<int, std::string> connect_clients_;
 };
 
 #endif
