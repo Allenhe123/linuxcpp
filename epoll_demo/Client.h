@@ -14,8 +14,9 @@
 
 #include <memory>
 #include <string>
+#include <cstring>
 
-#include "Epoller.h"
+#include "MSG.h"
 
 class Client
 {
@@ -26,23 +27,26 @@ public:
     int connect(const char* ip, int32_t port);
     void loop();
 
-    const std::string& ip() const { return ip_;}
-    int32_t port() const { return port_;}
-    bool isblock() const { return !nblock_; }
+    const std::string& ip() const noexcept { return ip_;}
+    int32_t port() const noexcept { return port_;}
+    bool isblock() const noexcept { return !nblock_; }
 
-    void send(char* buf);
+    // user protobuf to serialize a to char*
+    void send(char* buf, int32_t len, MSG_TYPE msg_type);
+    std::unique_ptr<char[]> recv();
 
 private:
-    void handle_read(int fd);
-    void handle_write(int fd);
+    std::unique_ptr<char[]> handle_read(int fd);
+    void handle_write(int fd, const std::unique_ptr<char []>& buf, int32_t msglen);
 
 private:
     std::string ip_ = "";
     int32_t port_;
     int sockfd_ = -1;
     bool nblock_ = true;
-    std::unique_ptr<Epoller> poller_ = nullptr;
     bool server_closed_ = false;
+    std::unique_ptr<char []> header_buf_ = nullptr;
+    int32_t header_len_ = 8;
 };
 
 #endif

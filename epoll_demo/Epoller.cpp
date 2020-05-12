@@ -60,7 +60,9 @@ std::vector<Response>&& Epoller::wait() const {
     }
     for (int i = 0; i < num;i++)
     {
-        vec.emplace_back(events[i].data.fd, events[i].events);
+        Response res(events[i].data.fd, events[i].events);
+        vec.push_back(res);
+        // vec.emplace_back(events[i].data.fd, events[i].events);   /////????
     }
     return std::move(vec);
 }

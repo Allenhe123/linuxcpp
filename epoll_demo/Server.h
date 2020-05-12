@@ -16,6 +16,7 @@
 #include <string>
 
 #include "Epoller.h"
+#include "MSG.h"
 
 class Server
 {
@@ -37,7 +38,10 @@ private:
     void handle_write(int fd);
     void handle_client_close(int fd);
 
+    void handle_msg(int fd, int msgtype, int msglen, const std::unique_ptr<char []>& msg);
+
 private:
+
     std::string ip_ = "";
     int32_t port_;
     int32_t backlog_;
@@ -45,6 +49,10 @@ private:
     bool nblock_ = true;
     std::unique_ptr<Epoller> poller_ = nullptr;
     std::unordered_map<int, std::string> connect_clients_;
+    std::unordered_map<int, Msg> connect_msgs_;
+
+    std::unique_ptr<char []> header_buf_ = nullptr;
+    int32_t header_len_ = 8;
 };
 
 #endif

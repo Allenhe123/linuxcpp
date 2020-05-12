@@ -22,6 +22,7 @@
 struct Response {
     int fd;
     uint32_t event;
+    Response(int f, uint32_t e): fd(f), event(e) {}
 };
 
 //LT , ET ?

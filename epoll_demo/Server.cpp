@@ -26,6 +26,8 @@ Server::Server(const char* ip, int32_t port, bool nblock, int32_t backlog):
     }
 
     poller_.reset(new Epoller());
+    header_len_ = sizeof(int32_t) * 2;
+    header_buf_.reset(new char[header_len_]);
 }
 
 int Server::listen() {
@@ -44,6 +46,8 @@ int Server::bind() {
 }
 
 void Server::loop() {
+    poller_->add_event(listenfd_, EPOLLIN, -1);
+
     for (;;)
     {
         std::vector<Response> resp = poller_->wait();
@@ -57,7 +61,6 @@ void Server::loop() {
         }
     }
 }
-
 
 void Server::handle_accept()
 {
@@ -84,13 +87,14 @@ void Server::handle_accept()
 }
 
 
-void  Server::handle_read(int fd) {
+void Server::handle_read(int fd) 
+{
     static const int32_t MAXSIZE = 1024;
     static char buf[1024] = {0};
-    int32_t header_len = sizeof(int32_t);
-    // read msg header
+    int32_t header_len = header_len_;
+    // read msg header(msgtype and msglen)
     bool read_error = false;
-    char* header_buf = new char[header_len];
+    char* header_buf = header_buf_.get();
     char* header_buf_origin = header_buf;
     while (header_len > 0)
     {
@@ -129,13 +133,17 @@ void  Server::handle_read(int fd) {
             }
         }
     }
-    printf("msg len: %d\n", *(int32_t*)header_buf_origin);
 
     // read msg data
     if (!read_error)
     {
         int32_t len = *(int32_t*)header_buf_origin;
-        char* pbuffer = new char[len];
+        int32_t msgtype = *(int32_t*)(header_buf_origin + sizeof(int32_t));
+        printf("msg len: %d\n", len);
+        printf("msg type: %d\n", msgtype);
+
+        auto uptr = std::make_unique<char []>(len);
+        char* pbuffer = uptr.get();
         char* buffer_origin = pbuffer;
         int readed = 0;
         while (len > MAXSIZE)
@@ -189,57 +197,85 @@ void  Server::handle_read(int fd) {
             len  -= readed;
             if (len <= 0) break;
         }
-        printf("recv msg: %s\n", buffer_origin);
-        delete []buffer_origin;
 
-        //修改描述符对应的事件，由读改为写(为何每次都要修改???)
+        handle_msg(fd, msgtype, len, uptr);
+
+        //修改描述符对应的事件，由读改为写(因为socket默认既可读也可写)
         if (!read_error)
             poller_->modify_event(fd, EPOLLOUT);
     }
-    delete []header_buf_origin;
-    if (read_error)
+    else
     {
-        poller_->delete_event(fd, EPOLLIN);   // ????
+        poller_->delete_event(fd, EPOLLIN);
         close(fd);
     }
 }
 
+void Server::handle_msg(int fd, int32_t msgtype, int32_t msglen, const std::unique_ptr<char []>& msg)
+{
+    switch (msgtype)
+    {
+    case MSG_TYPE::MSG_REQ_NAME:
+        {
+            //parse msg, then package the reply msg
+            char* buf = "allenhe";
+            int32_t msglen = strlen(buf);
+            int32_t msgtype = (int32_t)MSG_TYPE::MSG_RES_NAME;
+            // auto uptr = std::make_shared<char []>(msglen + header_len_);
+            std::shared_ptr<char[]> uptr(new char[msglen + header_len_]);
+            char* buffer = uptr.get();
+            memcpy(buffer, &msglen , sizeof(int32_t));
+            buffer += sizeof(int32_t);
+            memcpy(buffer, &msgtype , sizeof(int32_t));
+            buffer += sizeof(int32_t);
+            memcpy(buffer, buf, msglen);
+
+            connect_msgs_[fd] = Msg(uptr, msglen, MSG_TYPE::MSG_RES_NAME);
+
+            break;
+        }
+    
+    default:
+        break;
+    }
+}
 
 void Server::handle_write(int fd) {
-    static char buf[1024] = {0};
-    snprintf(buf, 1024, "hello client %d, i am server!\n", fd);
+    auto ite = connect_msgs_.find(fd);
+    if (ite == connect_msgs_.end()) {
+        printf("can't find write for %d \n", fd);
+        return;
+    }
 
-    int32_t msg_len = strlen(buf);
-    char* buffer = new char[msg_len + sizeof(int32_t)];
-    char* buffer_ori = buffer;
-    memcpy(buffer, &msg_len , sizeof(int32_t));
-    buffer += sizeof(int32_t);
-    memcpy(buffer, buf, msg_len);
-
-    int32_t len = msg_len + sizeof(int32_t);
+    bool write_error = false;
+    int32_t msglen = ite->second.msglen;
+    int32_t len = msglen + header_len_;
+    char* buffer = ite->second.msg.get();
     while (len > 0)
     {
-        int nwrite = write(fd, buffer_ori, len);
+        int nwrite = write(fd, buffer, len);
         if (nwrite == -1)
         {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 continue;
             }
-            else 
-            {
+            else {
                 perror("write error would close session:");
                 close(fd);
+                write_error = true;
                 break;
             }
         }
         len -= nwrite;
-        buffer_ori += nwrite;
+        buffer += nwrite;
     }
-    delete []buffer_ori;
-    poller_->modify_event(fd, EPOLLIN);
-}
 
+    if (write_error)
+        poller_->delete_event(fd, EPOLLOUT);
+    else
+        poller_->modify_event(fd, EPOLLIN);
+}
 
 void Server::handle_client_close(int fd)
 {

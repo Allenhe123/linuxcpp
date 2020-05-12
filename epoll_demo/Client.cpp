@@ -11,7 +11,8 @@ Client::Client(bool nblock): nblock_(nblock) {
             perror("setsocketopt for SOCK_NONBLOCK failed:");
     }
 
-    poller_.reset(new Epoller());
+    header_len_ = sizeof(int32_t) * 2;
+    header_buf_.reset(new char[header_len_]);
 }
 
 int Client::connect(const char* ip, int32_t port) {
@@ -33,65 +34,55 @@ int Client::connect(const char* ip, int32_t port) {
     return res;
 }
 
- void Client::send(char* buf) {
-     (void*)buf;
-     handle_write(sockfd_);
+ void Client::send(char* buf, int32_t len, MSG_TYPE msg_type) {
+    int32_t msglen = len;
+    int32_t msgtype = (int32_t)msg_type;
+    auto uptr = std::make_unique<char[]>(len + header_len_);
+    char* buffer = uptr.get();
+    memcpy(buffer, &msglen, sizeof(int32_t));
+    buffer += sizeof(int32_t);
+    memcpy(buffer, &msgtype, sizeof(int32_t));
+    buffer += sizeof(int32_t);
+    memcpy(buffer, buf, msglen);
+
+    handle_write(sockfd_, uptr, msglen);
  }
 
-void Client::loop() {
-    poller_->add_event(sockfd_, EPOLLOUT, -1);
+ std::unique_ptr<char[]> Client::recv() {
+     return std::move(handle_read(sockfd_));
+ }
 
-    for (;;) {
-        if (server_closed_) {
-            printf("server closed\n");
-            break;
-        }
 
-        std::vector<Response> resp = poller_->wait();
-        for (const auto& r : resp) {
-            if (r.fd == sockfd_ && r.event & EPOLLIN)
-                handle_read(r.fd);
-            else if (r.fd == sockfd_ && r.event & EPOLLOUT)
-                handle_write(r.fd);
-        }
-    }
-}
+void Client::handle_write(int fd, const std::unique_ptr<char []>& buf, int32_t msglen) {
+    bool write_error = false;
+    char* buffer = buf.get();
+    int32_t len = msglen + header_len_;
 
-void Client::handle_write(int fd) {
-    static char buf[1024] = {0};
-    snprintf(buf, 1024, "i am client %d! \n", fd);
-    int32_t msg_len = strlen(buf);
-    char* buffer = new char[msg_len + sizeof(int32_t)];
-    char* buffer_ori = buffer;
-    memcpy(buffer, &msg_len , sizeof(int32_t));
-    buffer += sizeof(int32_t);
-    memcpy(buffer, buf, msg_len);
-
-    int32_t len = msg_len + sizeof(int32_t);
     while (len > 0)
     {
-        int nwrite = write(fd, buffer_ori, len);
+        int nwrite = write(fd, buffer, len);
         if (nwrite == -1)
         {
             perror("write error would close session:");
-            close(fd);
+            write_error = true;
             break;
         }
         len -= nwrite;
-        buffer_ori += nwrite;
+        buffer += nwrite;
     }
-    poller_->modify_event(sockfd_, EPOLLIN);
+    if (write_error) {
+        close(fd);
+    }
 }
 
-
-void Client::handle_read(int fd) {
+std::unique_ptr<char[]> Client::handle_read(int fd) {
     static const int32_t MAXSIZE = 1024;
     static char buf[1024] = {0};
-    int32_t header_len = sizeof(int32_t);
-    // read msg header
+    // read header(msglen and msgtype)
+    int32_t header_len = header_len_;
     bool read_error = false;
-    char* header_buf = new char[header_len];
-    char* header_buf_origin = header_buf;
+    char* header_buf = header_buf_.get();
+    char* header_buf_origin = header_buf_.get();
     while (header_len > 0)
     {
         int nread = read(fd, buf, header_len);
@@ -111,6 +102,7 @@ void Client::handle_read(int fd) {
         else if (nread == 0)
         {
             server_closed_ = true;
+            printf("peer closed\n");
             read_error = true;
             break;
         }
@@ -129,13 +121,16 @@ void Client::handle_read(int fd) {
             }
         }
     }
-    printf("msg len: %d\n", *(int32_t*)header_buf_origin);
 
     // read msg data
     if (!read_error)
     {
+        printf("msg len: %d\n", *(int32_t*)header_buf_origin);
+        printf("msg type: %d\n", *(int32_t*)(header_buf_origin + sizeof(int32_t)));
+
         int32_t len = *(int32_t*)header_buf_origin;
-        char* pbuffer = new char[len];
+        auto uptr = std::make_unique<char []>(len);
+        char* pbuffer = uptr.get();
         char* buffer_origin = pbuffer;
         int readed = 0;
         while (len > MAXSIZE)
@@ -170,6 +165,7 @@ void Client::handle_read(int fd) {
             if (readed == 0)
             {
                 server_closed_ = true;
+                printf("peer closed\n");
                 read_error = true;
                 break;
             }
@@ -189,18 +185,11 @@ void Client::handle_read(int fd) {
             len  -= readed;
             if (len <= 0) break;
         }
-        printf("recv msg: %s\n", buffer_origin);
-        delete []buffer_origin;
-
-        //修改描述符对应的事件，由读改为写(为何每次都要修改???)
-        if (!read_error)
-            poller_->modify_event(fd, EPOLLOUT);
+        return std::move(uptr);
     }
-    delete []header_buf_origin;
-    if (read_error)
+    else
     {
-        poller_->delete_event(fd, EPOLLIN);
         close(fd);
+        return nullptr;
     }
-
 }
