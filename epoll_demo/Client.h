@@ -21,7 +21,7 @@
 class Client
 {
 public:
-    Client(bool nblock = true);
+    Client(bool nblock = false);
     virtual ~Client() { close(sockfd_);}
 
     int connect(const char* ip, int32_t port);

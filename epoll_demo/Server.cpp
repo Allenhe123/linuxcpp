@@ -139,8 +139,7 @@ void Server::handle_read(int fd)
     {
         int32_t len = *(int32_t*)header_buf_origin;
         int32_t msgtype = *(int32_t*)(header_buf_origin + sizeof(int32_t));
-        printf("msg len: %d\n", len);
-        printf("msg type: %d\n", msgtype);
+        printf("recv msglen: %d, msgtype: %d\n", len, msgtype);
 
         auto uptr = std::make_unique<char []>(len);
         char* pbuffer = uptr.get();

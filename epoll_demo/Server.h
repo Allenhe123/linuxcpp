@@ -21,7 +21,7 @@
 class Server
 {
 public:
-    Server(const char* ip, int32_t port, bool nblock = true, int32_t backlog = 5);
+    Server(const char* ip, int32_t port, bool nblock = false, int32_t backlog = 5);
     virtual ~Server() { close(listenfd_);}
 
     int listen();

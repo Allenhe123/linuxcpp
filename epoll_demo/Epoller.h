@@ -31,7 +31,7 @@ class Epoller
 {
 public:
     explicit Epoller(uint32_t fdsize = 1024, uint32_t max_event = 20): 
-        fd_size_(fdsize), max_event_size_(max_event) {}
+        fd_size_(fdsize), max_event_size_(max_event) { init();}
     ~Epoller() { close(epollfd_); }
 
     Epoller(const Epoller& poller) = delete;
@@ -45,7 +45,7 @@ public:
         return epollfd_;
     }
 
-    std::vector<Response>&& wait() const;
+    std::vector<Response> wait() const;
 
 private:
     void init();
@@ -53,7 +53,7 @@ private:
 private:
     int epollfd_ = -1;
     uint32_t fd_size_ = 0;
-    uint32_t max_event_size_ = 0;
+    uint32_t max_event_size_ = 64;
 
     std::unordered_map<int, epoll_event> requests_;
 };

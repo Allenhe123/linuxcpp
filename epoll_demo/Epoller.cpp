@@ -50,15 +50,15 @@ void Epoller::modify_event(int fd, uint32_t event) {
     requests_[fd] = ev;
 }
 
-std::vector<Response>&& Epoller::wait() const {
-    struct epoll_event events[max_event_size_];
+std::vector<Response> Epoller::wait() const {
+    struct epoll_event events[20];
     std::vector<Response> vec;
-    int num = epoll_wait(epollfd_, events, max_event_size_, -1);
+    int num = epoll_wait(epollfd_, events, 20, -1);
     if (num == -1) {
         perror("epoll_wait failed:");
         return std::move(vec);
     }
-    for (int i = 0; i < num;i++)
+    for (int i = 0; i < num; i++)
     {
         Response res(events[i].data.fd, events[i].events);
         vec.push_back(res);

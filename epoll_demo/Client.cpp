@@ -125,8 +125,8 @@ std::unique_ptr<char[]> Client::handle_read(int fd) {
     // read msg data
     if (!read_error)
     {
-        printf("msg len: %d\n", *(int32_t*)header_buf_origin);
-        printf("msg type: %d\n", *(int32_t*)(header_buf_origin + sizeof(int32_t)));
+        printf("read msglen: %d, msgtype: %d\n", *(int32_t*)header_buf_origin, 
+                *(int32_t*)(header_buf_origin + sizeof(int32_t)));
 
         int32_t len = *(int32_t*)header_buf_origin;
         auto uptr = std::make_unique<char []>(len);
