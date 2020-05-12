@@ -17,16 +17,17 @@
 
 #include <unordered_map>
 #include <vector>
+#include <memory>
 
 
 struct Response {
     int fd;
     uint32_t event;
+    Response() = default;
     Response(int f, uint32_t e): fd(f), event(e) {}
 };
 
-//LT , ET ?
-
+//default is LT mode. ET ?
 class Epoller
 {
 public:
@@ -45,7 +46,8 @@ public:
         return epollfd_;
     }
 
-    std::vector<Response> wait() const;
+    int32_t wait();
+    const std::vector<Response>& resp() const noexcept { return resp_;}
 
 private:
     void init();
@@ -54,6 +56,8 @@ private:
     int epollfd_ = -1;
     uint32_t fd_size_ = 0;
     uint32_t max_event_size_ = 64;
+    std::unique_ptr<struct epoll_event []> epoll_events_ = nullptr;
+    std::vector<Response> resp_;
 
     std::unordered_map<int, epoll_event> requests_;
 };

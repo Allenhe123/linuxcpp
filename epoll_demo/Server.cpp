@@ -50,7 +50,8 @@ void Server::loop() {
 
     for (;;)
     {
-        std::vector<Response> resp = poller_->wait();
+        int num = poller_->wait();
+        const std::vector<Response>& resp = poller_->resp();
         for (const auto& r : resp) {
             if (r.fd == listenfd_)
                 handle_accept();
